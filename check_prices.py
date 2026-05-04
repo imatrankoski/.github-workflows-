@@ -1,4 +1,3 @@
-name=check_prices.py
 import requests
 import smtplib
 import json
