@@ -1,4 +1,3 @@
-name=.github/workflows/debug-schedule.yml
 name: Debug Mode - Test Email Every Minute
 
 on:
