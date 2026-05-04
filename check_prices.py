@@ -17,7 +17,8 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM")
 EMAIL_TO = os.environ.get("EMAIL_TO")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "imatrankoski/nordpool-alert")
+GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "jereki/imatrankoskiFreedomTracker")
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "false").lower() == "true"
 
 STATE_FILE_PATH = ".github/workflows/.last_alert.json"
 
@@ -39,7 +40,10 @@ logging.basicConfig(
 def validate_secrets():
     """Validate all required secrets are set"""
     logging.info("=" * 60)
-    logging.info("Starting Nord Pool price check")
+    if DEBUG_MODE:
+        logging.info("🔧 DEBUG MODE ENABLED - Sending test email every minute")
+    else:
+        logging.info("Starting Nord Pool price check")
     logging.info("=" * 60)
     
     missing = []
@@ -221,12 +225,14 @@ def already_alerted(rows):
 # ============================================================
 # EMAIL FORMATTING & SENDING
 # ============================================================
-def format_email(rows):
+def format_email(rows, is_debug=False):
     """Generate HTML email with price table"""
-    html = """
+    debug_badge = "<span style='background-color: #ff9800; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px;'>DEBUG MODE</span>" if is_debug else ""
+    
+    html = f"""
     <html>
     <body style="font-family: Arial, sans-serif; color: #333;">
-    <h3>⚡ Negative electricity prices detected (FI)</h3>
+    <h3>⚡ Negative electricity prices detected (FI) {debug_badge}</h3>
     
     <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 600px;">
         <tr style="background-color: #f2f2f2; font-weight: bold;">
@@ -268,11 +274,11 @@ def format_email(rows):
     return html
 
 
-def send_email(body):
+def send_email(body, subject=None):
     """Send HTML email via Gmail SMTP"""
     try:
         msg = MIMEText(body, "html")
-        msg["Subject"] = "⚡ Nord Pool Alert: Negative Prices (FI)"
+        msg["Subject"] = subject or "⚡ Nord Pool Alert: Negative Prices (FI)"
         msg["From"] = EMAIL_FROM
         msg["To"] = EMAIL_TO
         
@@ -280,7 +286,7 @@ def send_email(body):
             server.login(EMAIL_FROM, EMAIL_PASS)
             server.send_message(msg)
         
-        logging.info(f"✓ Alert email sent to {EMAIL_TO}")
+        logging.info(f"✓ Email sent to {EMAIL_TO}")
     
     except smtplib.SMTPAuthenticationError:
         logging.error("❌ Email authentication failed - check EMAIL_FROM and EMAIL_PASS")
@@ -296,27 +302,45 @@ def main():
     try:
         validate_secrets()
         
-        data = fetch_data()
-        negatives = extract_negative_rows(data)
-        
-        if negatives:
-            logging.info(f"Found {len(negatives)} negative price(s)")
+        if DEBUG_MODE:
+            # Debug mode: Always send test email with current time
+            logging.info("🔧 Running in DEBUG mode - sending test email")
+            test_rows = [{
+                "start": datetime.now(ZoneInfo("UTC")).isoformat(),
+                "end": datetime.now(ZoneInfo("UTC")).isoformat(),
+                "price": -15.50,
+                "vwap1h": -12.75,
+                "vwap3h": -10.25
+            }]
+            body = format_email(test_rows, is_debug=True)
+            subject = f"🧪 [TEST] Debug Mode Email - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            send_email(body, subject)
+            logging.info("=" * 60)
+            logging.info("✓ Debug email sent successfully")
+            logging.info("=" * 60)
+        else:
+            # Normal mode: Check for actual negative prices
+            data = fetch_data()
+            negatives = extract_negative_rows(data)
             
-            if not already_alerted(negatives):
-                body = format_email(negatives)
-                send_email(body)
-                save_state_to_github(negatives)
-                logging.info("=" * 60)
-                logging.info("✓ Alert sent and state saved")
-                logging.info("=" * 60)
+            if negatives:
+                logging.info(f"Found {len(negatives)} negative price(s)")
+                
+                if not already_alerted(negatives):
+                    body = format_email(negatives)
+                    send_email(body)
+                    save_state_to_github(negatives)
+                    logging.info("=" * 60)
+                    logging.info("✓ Alert sent and state saved")
+                    logging.info("=" * 60)
+                else:
+                    logging.info("=" * 60)
+                    logging.info("No new alerts needed (already notified)")
+                    logging.info("=" * 60)
             else:
                 logging.info("=" * 60)
-                logging.info("No new alerts needed (already notified)")
+                logging.info("✓ No negative prices detected")
                 logging.info("=" * 60)
-        else:
-            logging.info("=" * 60)
-            logging.info("✓ No negative prices detected")
-            logging.info("=" * 60)
     
     except Exception as e:
         logging.error("=" * 60)

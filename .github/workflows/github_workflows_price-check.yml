@@ -1,0 +1,45 @@
+name=.github/workflows/price-check.yml
+name: Nordpool Price Check
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # Every 10 minutes
+  workflow_dispatch:  # Manual trigger
+
+permissions:
+  contents: write  # Allow workflow to write to repo
+
+jobs:
+  price-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run price check
+        env:
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DEBUG_MODE: "false"
+        run: python check_prices.py
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-logs
+          path: app.log
+          retention-days: 7
